@@ -46,7 +46,7 @@ class GamePlay:
         self.__game_step = 0
         self.__csv_data = []
         self.auto_game()
-        self.__game_states = np.zeros([1,8])         #This saves game states to feed in to neural network model
+        self.__game_states = np.zeros([1,9])                                   #This saves game states to feed in to neural network model
     def node_create(self, node_name, dollar_amount):
         self.__node_alias_set.append(node_name)
         new_node = Node(node_name,dollar_amount)
@@ -119,7 +119,7 @@ class GamePlay:
             dollar_set.append(node.get_dollar_amount())
         return dollar_set
     def naive_game_play(self):                                                 #before using ml, just give and take from outliers to 
-        for i in range(1,10000):                                               #play game
+        for i in range(1,150):                                                 #play game
             dollar_set = self.get_dollars_from_all()
             most_dollars = dollar_set.index(max(dollar_set))
             least_dollars = dollar_set.index(min(dollar_set))
@@ -133,9 +133,12 @@ class GamePlay:
                     self.give_dollars(self.__node_alias_set[most_dollars])
             else:
                 break
-        self.save_states(0)                                                     #Write current game result to file
+        game_done = 1
+        if i == 149:
+            game_done = 0
+        self.save_states(0, game_done)                                         #Write current game result to file
     def game_play_with_random_moves(self):                                     #Add random moves to teach the neural net
-        for i in range(1,10000):                                               #model possibilities for play
+        for i in range(1,150):                                                 #model possibilities for play
             dollar_set = self.get_dollars_from_all()
             most_dollars = dollar_set.index(max(dollar_set))
             least_dollars = dollar_set.index(min(dollar_set))
@@ -155,20 +158,26 @@ class GamePlay:
                     self.give_dollars(self.__node_alias_set[most_dollars])
             else:
                 break
-        self.save_states(1)                                                    #Write current game result to file
+        game_done = 1
+        if i == 149:
+            game_done = 0
+        self.save_states(1, game_done)                                         #Write current game result to file
     def game_play_completely_random_moves(self):                               #Add random moves to teach the neural net
-        for i in range(1,10000):                                               #model possibilities for play
+        for i in range(1,100):                                                 #model possibilities for play
+            game_done = 1
+            if i == 99:
+                game_done = 0
             if self.finished_game_test() != 1:
                 node_number = random.randrange(len(self.__node_alias_set))  
                 node_name = self.__node_alias_set[node_number]
-                give_or_take = random.randrange(0,1)
-                if give_or_take % 2 ==0:
-                    self.give_dollars(node_name)
-                else:
+                give_or_take = random.randrange(0,20)
+                if give_or_take % 10 == 0:
                     self.take_dollars(node_name)
+                else:
+                    self.give_dollars(node_name)
             else:
                 break
-        self.save_states(2) 
+        self.save_states(2, game_done) 
     def report_node_states(self, node_choice, give_take):
         """
         The matrix with game node states will contain the following columns:
@@ -179,12 +188,13 @@ class GamePlay:
         5 - = self - average of secondary neighbor set
         6 - Number of tight 3-way node connections with a triangle all connected
         7 - give(0) or take(1)
+        8 - finish game or not?
         0 - Remaining steps to finish  -- set in finalize_game_states
         """
         self.find_adjacent_nodes(node_choice, give_take)
     def find_adjacent_nodes(self, node_choice, give_take):                                #Find how many nodes are connected 1 and 2 steps 
         node_length_set = []                                                   #away, mean dollar value for connections, 
-        add_to_game_states = np.zeros([1,8])                                   # and number of negative connections 
+        add_to_game_states = np.zeros([1,9])                                   # and number of negative connections 
         for i in range(1):                                                                                    
             one_degree_conn_set = [node_choice]                                                        
             one_degree_conn_set = one_degree_conn_set + \
@@ -222,9 +232,10 @@ class GamePlay:
         else:
             self.__game_states = add_to_game_states
         #print(len(self.__game_states))
-    def finalize_game_states(self, game_save_type):                            #prepare game state matrix, then save it
+    def finalize_game_states(self, game_save_type, game_done):                            #prepare game state matrix, then save it
         game_steps_remaining = [*range(len(self.__game_states)-1,-1,-1)]
         self.__game_states[:,0] = game_steps_remaining
+        self.__game_states[:,8] = game_done
         file_choices = ('C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /node_choice_naive.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /node_choice_naive_with_random.csv', 'C:/Users/dawig/Desktop/AUC/\
@@ -244,12 +255,12 @@ dollar_game_performance/node_choice_completely_random.csv')
                          [self.__node_alias_set.index(deg)].get_dollar_amount()
         
         return (sum_neighborhood/len(neighborhood_set), neg_size)
-    def save_states(self, game_save_type):                                     #This saves number of step for finished games
+    def save_states(self, game_save_type, game_done):                          #This saves number of step for finished games
         file_choices = ('C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /naive.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /naive_with_random.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /completely_random.csv')
-        self.finalize_game_states(game_save_type)
+        self.finalize_game_states(game_save_type, game_done)
         self.__csv_data.append((len(self.__node_set),self.__game_step))
         file_to_write = file_choices[game_save_type]
         with open(file_to_write, 'a') as csvFile:
@@ -351,12 +362,15 @@ class CreateAGame:
         return return_list
     
     
-for i in range(1):
-
+for i in range(1000):
+    temp = GamePlay()
+    temp.game_play_completely_random_moves()
+for i in range(1000):
     temp = GamePlay()
     temp.naive_game_play() 
-    #temp.game_play_with_random_moves()
-    #temp.game_play_completely_random_moves()
+for i in range(1000):
+    temp = GamePlay()
+    temp.game_play_with_random_moves()
 
     
     
