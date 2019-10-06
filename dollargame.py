@@ -47,6 +47,7 @@ class GamePlay:
         self.__csv_data = []
         self.auto_game()
         self.__game_states = np.zeros([1,9])                                   #This saves game states to feed in to neural network model
+        self.__current_node_states = np.zeros([1,9])                           #This is for the nn model to use for predictions
     def node_create(self, node_name, dollar_amount):
         self.__node_alias_set.append(node_name)
         new_node = Node(node_name,dollar_amount)
@@ -67,7 +68,7 @@ class GamePlay:
         for adjacent_node in connected_list:
             self.__node_set[self.__node_alias_set.index(adjacent_node)].\
                                                         change_dollar_amount(1)
-        temp.report_node_states(node_donor, 0)
+        self.report_node_states(node_donor, 0)
         self.__game_step +=1
     def take_dollars(self, node_donor):                                        #this takes one dollar from each neighbor
         connected_list = self.find_connected(node_donor)                       
@@ -77,7 +78,7 @@ class GamePlay:
         for adjacent_node in connected_list:
             self.__node_set[self.__node_alias_set.index(adjacent_node)].\
                                                        change_dollar_amount(-1)
-        temp.report_node_states(node_donor, 1)
+        self.report_node_states(node_donor, 1)
         self.__game_step +=1
     def find_connected(self,node_to_search):                                   #This function helps find which nodes to take from or give to.
         connections_containing_x = []
@@ -177,7 +178,17 @@ class GamePlay:
                     self.give_dollars(node_name)
             else:
                 break
-        self.save_states(2, game_done) 
+        self.save_states(2, game_done)
+    def neural_net_game_play(self, node_code, move_num):                       #play game with neural net model                                              
+        if self.finished_game_test() != 1:                                     #node_code is set based on a zipped
+            if node_code % 2 == 0:                                             #ordering of nodes submitted to the nn model
+                self.give_dollars(self.__node_alias_set[int(node_code/2)])
+            else:
+                self.take_dollars(self.__node_alias_set[int(node_code/2)])
+        if move_num == 99:
+            game_done = self.finished_game_test()
+            self.save_states(3, game_done)
+                                    
     def report_node_states(self, node_choice, give_take):
         """
         The matrix with game node states will contain the following columns:
@@ -191,8 +202,8 @@ class GamePlay:
         8 - finish game or not?
         0 - Remaining steps to finish  -- set in finalize_game_states
         """
-        self.find_adjacent_nodes(node_choice, give_take)
-    def find_adjacent_nodes(self, node_choice, give_take):                                #Find how many nodes are connected 1 and 2 steps 
+        self.find_adjacent_nodes(node_choice, give_take, 0)
+    def find_adjacent_nodes(self, node_choice, give_take, mode):               #Find how many nodes are connected 1 and 2 steps 
         node_length_set = []                                                   #away, mean dollar value for connections, 
         add_to_game_states = np.zeros([1,9])                                   # and number of negative connections 
         for i in range(1):                                                                                    
@@ -227,19 +238,30 @@ class GamePlay:
                       own_dollars - self.neighbor_avg(one_degree_conn_set,i)[0]
             add_to_game_states[i, 6] = triangle_connections_count
             add_to_game_states[i, 7] = give_take
-        if self.__game_states[0][1] != 0:
-            self.__game_states = np.append(self.__game_states, add_to_game_states, axis = 0)
+        if mode == 0:
+            if self.__game_states[0][1] != 0:
+                self.__game_states = np.append(self.__game_states, \
+                                                  add_to_game_states, axis = 0)
+            else:
+                self.__game_states = add_to_game_states
         else:
-            self.__game_states = add_to_game_states
-        #print(len(self.__game_states))
-    def finalize_game_states(self, game_save_type, game_done):                            #prepare game state matrix, then save it
+            if self.__current_node_states[0][1] != 0:
+                self.__current_node_states = np.append\
+                     (self.__current_node_states, add_to_game_states, axis = 0)
+            else:
+                self.__current_node_states = add_to_game_states
+    def finalize_game_states(self, game_save_type, game_done):                 #prepare game state matrix, then save it
         game_steps_remaining = [*range(len(self.__game_states)-1,-1,-1)]
         self.__game_states[:,0] = game_steps_remaining
         self.__game_states[:,8] = game_done
         file_choices = ('C:/Users/dawig/Desktop/AUC/dollar_game_performance\
-/node_choice_naive.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
-/node_choice_naive_with_random.csv', 'C:/Users/dawig/Desktop/AUC/\
-dollar_game_performance/node_choice_completely_random.csv')
+/node_choice_naive.csv',\
+'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
+/node_choice_naive_with_random.csv',\
+'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
+/node_choice_completely_random.csv',\
+'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
+/node_choice_neural_net_plays.csv')
         file_to_write = file_choices[game_save_type]
         with open(file_to_write, 'a') as csvFile:
             writer = csv.writer(csvFile, lineterminator = '\n')
@@ -259,7 +281,8 @@ dollar_game_performance/node_choice_completely_random.csv')
         file_choices = ('C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /naive.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
 /naive_with_random.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
-/completely_random.csv')
+/completely_random.csv', 'C:/Users/dawig/Desktop/AUC/dollar_game_performance\
+/neural_net_plays.csv')
         self.finalize_game_states(game_save_type, game_done)
         self.__csv_data.append((len(self.__node_set),self.__game_step))
         file_to_write = file_choices[game_save_type]
@@ -272,7 +295,14 @@ dollar_game_performance/node_choice_completely_random.csv')
                 return True
             elif first == conn[1] and second == conn[0]:
                 return True
-        return False  
+        return False
+    def give_game_states(self):                                                #Beware!!  This gives node states, but also
+        for node_alias in self.__node_alias_set:                               #resets the game_states array
+            self.find_adjacent_nodes(node_alias, 0, 1)
+            self.find_adjacent_nodes(node_alias, 1, 1)
+        game_states_return = self.__current_node_states
+        self.__current_node_states = np.zeros([1,9])
+        return game_states_return
     def TEMPprint_game(self):
         print (self.__node_set)                                                  
         print (self.__node_alias_set)
@@ -362,15 +392,15 @@ class CreateAGame:
         return return_list
     
     
-for i in range(1000):
-    temp = GamePlay()
-    temp.game_play_completely_random_moves()
-for i in range(1000):
-    temp = GamePlay()
-    temp.naive_game_play() 
-for i in range(1000):
-    temp = GamePlay()
-    temp.game_play_with_random_moves()
+#for i in range(10):
+#    temp = GamePlay()
+#    temp.game_play_completely_random_moves()
+#for i in range(1000):
+#    temp = GamePlay()
+#    temp.naive_game_play() 
+#for i in range(1000):
+#    temp = GamePlay()
+#    temp.game_play_with_random_moves()
 
     
     
