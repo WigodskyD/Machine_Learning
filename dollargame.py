@@ -45,9 +45,11 @@ class GamePlay:
         self.__connection_set = []
         self.__game_step = 0
         self.__csv_data = []
+        #This (below, used by give and take dollars) tracks improvement after moves - used in loss function
+        self.__neg_load_change = 0                                                    
         self.auto_game()
-        self.__game_states = np.zeros([1,9])                                   #This saves game states to feed in to neural network model
-        self.__current_node_states = np.zeros([1,9])                           #This is for the nn model to use for predictions
+        self.__game_states = np.zeros([1,11])                                  #This saves game states to feed in to neural network model
+        self.__current_node_states = np.zeros([1,11])                          #This is for the nn model to use for predictions
     def node_create(self, node_name, dollar_amount):
         self.__node_alias_set.append(node_name)
         new_node = Node(node_name,dollar_amount)
@@ -62,22 +64,28 @@ class GamePlay:
                   +' cannot be created.')
     def give_dollars(self, node_donor):                                        #this gives 1 dollar to each connected node 
         connected_list = self.find_connected(node_donor)                       #and subtracts from donor
+        self.__neg_load_change = self.calculate_negative_load()
         dollars_to_give = len(connected_list)
         self.__node_set[self.__node_alias_set.index(node_donor)].\
                                         change_dollar_amount(0-dollars_to_give)
         for adjacent_node in connected_list:
             self.__node_set[self.__node_alias_set.index(adjacent_node)].\
                                                         change_dollar_amount(1)
+        self.__neg_load_change = self.__neg_load_change \
+                                               - self.calculate_negative_load()#calculate neg_load twice to find change
         self.report_node_states(node_donor, 0)
         self.__game_step +=1
     def take_dollars(self, node_donor):                                        #this takes one dollar from each neighbor
-        connected_list = self.find_connected(node_donor)                       
+        connected_list = self.find_connected(node_donor) 
+        self.__neg_load_change = self.calculate_negative_load()                      
         dollars_to_take = len(connected_list)
         self.__node_set[self.__node_alias_set.index(node_donor)].\
                                           change_dollar_amount(dollars_to_take)
         for adjacent_node in connected_list:
             self.__node_set[self.__node_alias_set.index(adjacent_node)].\
                                                        change_dollar_amount(-1)
+        self.__neg_load_change = self.__neg_load_change \
+                                               - self.calculate_negative_load()#calculate neg_load twice to find change
         self.report_node_states(node_donor, 1)
         self.__game_step +=1
     def find_connected(self,node_to_search):                                   #This function helps find which nodes to take from or give to.
@@ -182,14 +190,15 @@ class GamePlay:
     def neural_net_game_play(self, node_code, move_num):                       #play game with neural net model                                              
         if self.finished_game_test() != 1:                                     #node_code is set based on a zipped
             if node_code % 2 == 0:                                             #ordering of nodes submitted to the nn model
-                self.give_dollars(self.__node_alias_set[int(node_code/2)])
-            else:
                 self.take_dollars(self.__node_alias_set[int(node_code/2)])
+            else:
+                self.give_dollars(self.__node_alias_set[int(node_code/2)])
         if move_num == 99:
             game_done = self.finished_game_test()
             self.save_states(3, game_done)
                                     
     def report_node_states(self, node_choice, give_take):
+
         """
         The matrix with game node states will contain the following columns:
         1 - size of primary neighbor set including self
@@ -199,13 +208,15 @@ class GamePlay:
         5 - = self - average of secondary neighbor set
         6 - Number of tight 3-way node connections with a triangle all connected
         7 - give(0) or take(1)
-        8 - finish game or not?
+        8 - finish game or not
+        9 - negative load change - part of target variable
+        10- own dollar amount for node
         0 - Remaining steps to finish  -- set in finalize_game_states
         """
         self.find_adjacent_nodes(node_choice, give_take, 0)
     def find_adjacent_nodes(self, node_choice, give_take, mode):               #Find how many nodes are connected 1 and 2 steps 
         node_length_set = []                                                   #away, mean dollar value for connections, 
-        add_to_game_states = np.zeros([1,9])                                   # and number of negative connections 
+        add_to_game_states = np.zeros([1,11])                                  # and number of negative connections 
         for i in range(1):                                                                                    
             one_degree_conn_set = [node_choice]                                                        
             one_degree_conn_set = one_degree_conn_set + \
@@ -232,12 +243,14 @@ class GamePlay:
             #Next 4 lines for col 4 and 5 - see docstring
             own_dollars = self.__node_set[self.__node_alias_set. \
                            index(node_choice)].get_dollar_amount()
+            add_to_game_states[i, 10] = own_dollars
             add_to_game_states[i, 5] = \
                       own_dollars - self.neighbor_avg(two_degree_conn_set,i)[0]
             add_to_game_states[i, 4] = \
                       own_dollars - self.neighbor_avg(one_degree_conn_set,i)[0]
             add_to_game_states[i, 6] = triangle_connections_count
             add_to_game_states[i, 7] = give_take
+            add_to_game_states[i, 9] = self.__neg_load_change
         if mode == 0:
             if self.__game_states[0][1] != 0:
                 self.__game_states = np.append(self.__game_states, \
@@ -301,8 +314,15 @@ class GamePlay:
             self.find_adjacent_nodes(node_alias, 0, 1)
             self.find_adjacent_nodes(node_alias, 1, 1)
         game_states_return = self.__current_node_states
-        self.__current_node_states = np.zeros([1,9])
+        self.__current_node_states = np.zeros([1,11])
         return game_states_return
+    def calculate_negative_load(self):
+        dollar_set = self.get_dollars_from_all()
+        neg_load = 0
+        for node_ident in dollar_set:
+            if node_ident < 0:
+                neg_load += (1 - node_ident)
+        return (neg_load)
     def TEMPprint_game(self):
         print (self.__node_set)                                                  
         print (self.__node_alias_set)
@@ -392,15 +412,18 @@ class CreateAGame:
         return return_list
     
     
-#for i in range(10):
-#    temp = GamePlay()
-#    temp.game_play_completely_random_moves()
-#for i in range(1000):
-#    temp = GamePlay()
-#    temp.naive_game_play() 
-#for i in range(1000):
-#    temp = GamePlay()
-#    temp.game_play_with_random_moves()
+"""for i in range(100):
+    temp = GamePlay()
+#    temp.calculate_negative_load()
+    temp.game_play_completely_random_moves()
+for i in range(100):
+    temp = GamePlay()
+    temp.naive_game_play()
+    #temp.TEMPprint_game()
+    #temp.print_current_game_board()
+for i in range(100):
+    temp = GamePlay()
+    temp.game_play_with_random_moves()"""
 
     
     
