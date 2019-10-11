@@ -48,8 +48,9 @@ class GamePlay:
         #This (below, used by give and take dollars) tracks improvement after moves - used in loss function
         self.__neg_load_change = 0                                                    
         self.auto_game()
-        self.__game_states = np.zeros([1,11])                                  #This saves game states to feed in to neural network model
-        self.__current_node_states = np.zeros([1,11])                          #This is for the nn model to use for predictions
+        self.__game_states = np.zeros([1,13])                                  #This saves game states to feed in to neural network model
+        self.__current_node_states = np.zeros([1,13])                          #This is for the nn model to use for predictions
+        self.__last_nodes_set = ['Z','Z']
     def node_create(self, node_name, dollar_amount):
         self.__node_alias_set.append(node_name)
         new_node = Node(node_name,dollar_amount)
@@ -211,12 +212,14 @@ class GamePlay:
         8 - finish game or not
         9 - negative load change - part of target variable
         10- own dollar amount for node
+        11- last node same or different
+        12- two nodes ago same or different
         0 - Remaining steps to finish  -- set in finalize_game_states
         """
         self.find_adjacent_nodes(node_choice, give_take, 0)
     def find_adjacent_nodes(self, node_choice, give_take, mode):               #Find how many nodes are connected 1 and 2 steps 
         node_length_set = []                                                   #away, mean dollar value for connections, 
-        add_to_game_states = np.zeros([1,11])                                  # and number of negative connections 
+        add_to_game_states = np.zeros([1,13])                                  # and number of negative connections 
         for i in range(1):                                                                                    
             one_degree_conn_set = [node_choice]                                                        
             one_degree_conn_set = one_degree_conn_set + \
@@ -244,6 +247,8 @@ class GamePlay:
             own_dollars = self.__node_set[self.__node_alias_set. \
                            index(node_choice)].get_dollar_amount()
             add_to_game_states[i, 10] = own_dollars
+            add_to_game_states[i, 11] = (node_choice==self.__last_nodes_set[0])
+            add_to_game_states[i, 12] = (node_choice==self.__last_nodes_set[1])
             add_to_game_states[i, 5] = \
                       own_dollars - self.neighbor_avg(two_degree_conn_set,i)[0]
             add_to_game_states[i, 4] = \
@@ -252,6 +257,8 @@ class GamePlay:
             add_to_game_states[i, 7] = give_take
             add_to_game_states[i, 9] = self.__neg_load_change
         if mode == 0:
+            self.__last_nodes_set[1] = self.__last_nodes_set[0]
+            self.__last_nodes_set[0] = node_choice
             if self.__game_states[0][1] != 0:
                 self.__game_states = np.append(self.__game_states, \
                                                   add_to_game_states, axis = 0)
@@ -279,7 +286,7 @@ class GamePlay:
         with open(file_to_write, 'a') as csvFile:
             writer = csv.writer(csvFile, lineterminator = '\n')
             writer.writerows(self.__game_states)  
-        print(self.__game_states)    
+        #print(self.__game_states)    
     def neighbor_avg(self,neighborhood_set,i):                                 #We call this above for 1 and 2 degree neighborhoods
         neg_size = 0
         sum_neighborhood = 0
@@ -314,15 +321,15 @@ class GamePlay:
             self.find_adjacent_nodes(node_alias, 0, 1)
             self.find_adjacent_nodes(node_alias, 1, 1)
         game_states_return = self.__current_node_states
-        self.__current_node_states = np.zeros([1,11])
+        self.__current_node_states = np.zeros([1,13])
         return game_states_return
     def calculate_negative_load(self):
         dollar_set = self.get_dollars_from_all()
         neg_load = 0
         for node_ident in dollar_set:
             if node_ident < 0:
-                neg_load += (1 - node_ident)
-        return (neg_load)
+                neg_load += (3 + (node_ident ** 2))                            #3 for each negative node
+        return (neg_load)                                                      #plus absolute value
     def TEMPprint_game(self):
         print (self.__node_set)                                                  
         print (self.__node_alias_set)
@@ -390,7 +397,7 @@ class CreateAGame:
                     queue_end +=1
             queue_pointer +=1  
         i = 0
-        while i < len(self.__connections_to_create):                           #Get rid of connection for removed nodes
+        while i < len(self.__connections_to_create):                           #Get rid of connections for removed nodes
             if self.__connections_to_create[i][0] not in connected_nodes:
                 self.__connections_to_create.remove\
                                               (self.__connections_to_create[i])
@@ -399,7 +406,7 @@ class CreateAGame:
         self.__nodes_to_create = connected_nodes
     def assign_dollars(self):                                                  #assign dollars after 
         for name in self.__nodes_to_create:
-            dollar_start = random.randrange(-3,5)                              
+            dollar_start = random.randrange(-6,9)                              
             self.__dollars_for_nodes.append(dollar_start)
         euler_number = len(self.__connections_to_create) - \
                                                 len(self.__nodes_to_create) + 1
@@ -411,20 +418,20 @@ class CreateAGame:
                                                   self.__connections_to_create]
         return return_list
     
-    
-"""for i in range(100):
+""" 
+for i in range(1000):
     temp = GamePlay()
 #    temp.calculate_negative_load()
     temp.game_play_completely_random_moves()
-for i in range(100):
+for i in range(1000):
     temp = GamePlay()
     temp.naive_game_play()
     #temp.TEMPprint_game()
     #temp.print_current_game_board()
-for i in range(100):
+for i in range(1000):
     temp = GamePlay()
-    temp.game_play_with_random_moves()"""
-
+    temp.game_play_with_random_moves()
+"""
     
-    
+  
     
